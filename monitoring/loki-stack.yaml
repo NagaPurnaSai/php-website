@@ -1,74 +1,51 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: monitoring
----
-# Loki Deployment
+# Add this to your loki-stack.yaml in GitHub
 apiVersion: apps/v1
-kind: Deployment
+kind: DaemonSet
 metadata:
-  name: loki
+  name: promtail
   namespace: monitoring
 spec:
-  replicas: 1
   selector:
     matchLabels:
-      app: loki
+      app: promtail
   template:
     metadata:
       labels:
-        app: loki
+        app: promtail
     spec:
       containers:
-      - name: loki
-        image: grafana/loki:latest
-        ports:
-        - containerPort: 3100
+      - name: promtail
+        image: grafana/promtail:latest
+        args:
+        - -config.file=/etc/promtail/config.yml
+        volumeMounts:
+        - name: logs
+          mountPath: /var/log
+        - name: config
+          mountPath: /etc/promtail
+      volumes:
+      - name: logs
+        hostPath:
+          path: /var/log
+      - name: config
+        configMap:
+          name: promtail-config
 ---
 apiVersion: v1
-kind: Service
+kind: ConfigMap
 metadata:
-  name: loki
+  name: promtail-config
   namespace: monitoring
-spec:
-  ports:
-  - port: 3100
-    targetPort: 3100
-  selector:
-    app: loki
----
-# Grafana Deployment
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: grafana
-  namespace: monitoring
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: grafana
-  template:
-    metadata:
-      labels:
-        app: grafana
-    spec:
-      containers:
-      - name: grafana
-        image: grafana/grafana:latest
-        ports:
-        - containerPort: 3000
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: grafana
-  namespace: monitoring
-spec:
-  type: NodePort
-  ports:
-  - port: 3000
-    targetPort: 3000
-    nodePort: 32000 # Access Grafana at http://192.150.150.165:32000
-  selector:
-    app: grafana
+data:
+  config.yml: |
+    server:
+      http_listen_port: 9080
+    clients:
+      - url: http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push
+    scrape_configs:
+      - job_name: kubernetes-pods
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            target_label: app
